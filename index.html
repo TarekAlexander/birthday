@@ -181,7 +181,19 @@ const QUESTIONS=[
 ];
 const $=x=>document.getElementById(x);
 const views=[$("join"),$("lobby"),$("game")]; const show=v=>{views.forEach(x=>x.classList.add("hidden"));v.classList.remove("hidden")};
-let sb,ch,me={id:crypto.randomUUID(),name:""},room="",presence={},controller=false,round=null,timer=null;
+function makeId(){
+  try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch(e) {}
+  try {
+    if (window.crypto && typeof window.crypto.getRandomValues === "function") {
+      const a=new Uint8Array(16); window.crypto.getRandomValues(a);
+      a[6]=(a[6]&15)|64; a[8]=(a[8]&63)|128;
+      const h=[...a].map(b=>b.toString(16).padStart(2,"0")).join("");
+      return h.slice(0,8)+"-"+h.slice(8,12)+"-"+h.slice(12,16)+"-"+h.slice(16,20)+"-"+h.slice(20);
+    }
+  } catch(e) {}
+  return "p-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2);
+}
+let sb,ch,me={id:makeId(),name:""},room="",presence={},controller=false,round=null,timer=null;
 const players=()=>Object.values(presence).flat().filter(x=>x?.id&&x?.name);
 function render(){const p=players();$("people").innerHTML=p.map(x=>`<span class="chip">🎈 ${escapeHTML(x.name)}</span>`).join("");$("count").textContent=p.length}
 function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
@@ -189,13 +201,28 @@ function toast(s){$("toast").textContent=s;$("toast").style.display="block";setT
 $("joinBtn").onclick=async()=>{
  me.name=$("name").value.trim();room=$("room").value.trim().toUpperCase().replace(/\s+/g,"-");
  if(!me.name||!room){$("joinMsg").textContent="اكتب الاسم ورمز الغرفة 🙃";return}
- sb=window.supabase.createClient(URL,KEY);
+ const btn=$("joinBtn");
+ btn.disabled=true; btn.textContent="عم نوصل... ⏳"; $("joinMsg").textContent="";
+ try {
+   if(!window.supabase || typeof window.supabase.createClient!=="function") throw new Error("Supabase library did not load");
+   sb=window.supabase.createClient(URL,KEY);
+ } catch(err){
+   console.error(err); $("joinMsg").textContent="تعذّر الاتصال باللعبة. اعمل Refresh وجرب من جديد.";
+   btn.disabled=false; btn.textContent="يلا فوت 🎉"; return;
+ }
  ch=sb.channel("birthday:"+room,{config:{presence:{key:me.id},broadcast:{self:true}}});
  ch.on("presence",{event:"sync"},()=>{presence=ch.presenceState();render()})
    .on("broadcast",{event:"round"},({payload})=>receiveRound(payload))
    .on("broadcast",{event:"hop"},({payload})=>receiveHop(payload))
    .on("broadcast",{event:"explode"},({payload})=>receiveExplosion(payload))
-   .subscribe(async s=>{if(s==="SUBSCRIBED"){await ch.track(me);$("roomName").textContent=room;show($("lobby"))}});
+   .subscribe(async s=>{
+     if(s==="SUBSCRIBED"){
+       try { await ch.track(me); $("roomName").textContent=room; show($("lobby")); }
+       catch(err){ console.error(err); $("joinMsg").textContent="اتصلنا، بس ما قدرنا ندخل الغرفة. جرّب Refresh."; btn.disabled=false; btn.textContent="يلا فوت 🎉"; }
+     } else if(s==="CHANNEL_ERROR" || s==="TIMED_OUT" || s==="CLOSED"){
+       $("joinMsg").textContent="مشكلة اتصال بالغرفة ("+s+"). جرّب Refresh."; btn.disabled=false; btn.textContent="يلا فوت 🎉";
+     }
+   });
 };
 $("start").onclick=()=>launchRound();
 $("leave").onclick=async()=>{if(ch){await ch.untrack();await sb.removeChannel(ch)}location.reload()};
@@ -208,9 +235,9 @@ async function launchRound(){
  const pool=p.filter(x=>x.id!==target.id);
  const hops=[];
  const n=Math.max(5,Math.min(10,p.length+3));
- for(let i=0;i<n;i++){const choices=pool.filter(x=>x.id!==hops.at(-1));const pick=(choices.length?choices:pool)[Math.floor(Math.random()*(choices.length?choices:pool).length)];if(pick)hops.push(pick.id)}
+ for(let i=0;i<n;i++){const choices=pool.filter(x=>x.id!==hops[hops.length-1]);const pick=(choices.length?choices:pool)[Math.floor(Math.random()*(choices.length?choices:pool).length)];if(pick)hops.push(pick.id)}
  hops.push(target.id);
- const payload={roundId:crypto.randomUUID(),controllerId:me.id,targetId:target.id,targetName:target.name,question:QUESTIONS[Math.floor(Math.random()*QUESTIONS.length)],hops,index:0};
+ const payload={roundId:makeId(),controllerId:me.id,targetId:target.id,targetName:target.name,question:QUESTIONS[Math.floor(Math.random()*QUESTIONS.length)],hops,index:0};
  await ch.send({type:"broadcast",event:"round",payload});
 }
 function receiveRound(p){
