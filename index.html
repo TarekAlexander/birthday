@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Shirley's 40th 🎂</title>
+<title>Shirley's 40th 🎂 — V10</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box} :root{--ink:#25173a;--pink:#ff4f9a;--yellow:#ffd84d;--blue:#64d8ff;--cream:#fff8e7;--purple:#8b5cf6}
@@ -146,7 +146,7 @@ input,button{width:100%;min-height:52px;border:3px solid var(--ink);border-radiu
  <div class="how"><h2>قبل ما تبلّش 👇</h2><ol><li>اكتب اسمك.</li><li>الكل يستخدم نفس رمز الغرفة.</li><li>راقب موبايلك: الطابة رح تنط بين الشاشات.</li><li>إذا انفجرت عندك 💥 السؤال إلك وحدك.</li><li>جاوب بصوت عالي واضغط «ارميها!».</li></ol></div>
  <input id="name" placeholder="اسمك 😎" maxlength="24">
  <input id="room" value="SHIRLEY40" placeholder="رمز الغرفة">
- <button id="joinBtn">يلا فوت 🎉</button><p id="joinMsg" class="muted"></p>
+ <button id="joinBtn" type="button">يلا فوت 🎉</button><p id="joinMsg" class="muted"></p>
 </section>
 
 <section id="lobby" class="card hidden">
@@ -171,7 +171,7 @@ input,button{width:100%;min-height:52px;border:3px solid var(--ink);border-radiu
 </section>
 </main>
 <script>
-const URL="https://rwqasnecejonrrdhqkrz.supabase.co";
+const SUPABASE_URL="https://rwqasnecejonrrdhqkrz.supabase.co";
 const KEY="sb_publishable_DTGJVuDQSJVljBu5LJB8dg_AmoqIYcE";
 const QUESTIONS=[
 "شو أول ذكرى بتتذكرها مع شيرلي؟","شو أكتر موقف ضحّكك معها؟","شو أكتر صفة بتحبها فيها؟","وصف شيرلي بثلاث كلمات فقط!","شو موقف مستحيل تنساه صار بينكم؟",
@@ -198,32 +198,35 @@ const players=()=>Object.values(presence).flat().filter(x=>x?.id&&x?.name);
 function render(){const p=players();$("people").innerHTML=p.map(x=>`<span class="chip">🎈 ${escapeHTML(x.name)}</span>`).join("");$("count").textContent=p.length}
 function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function toast(s){$("toast").textContent=s;$("toast").style.display="block";setTimeout(()=>$("toast").style.display="none",1700)}
-$("joinBtn").onclick=async()=>{
- me.name=$("name").value.trim();room=$("room").value.trim().toUpperCase().replace(/\s+/g,"-");
- if(!me.name||!room){$("joinMsg").textContent="اكتب الاسم ورمز الغرفة 🙃";return}
+async function joinGame(){
+ me.name=$("name").value.trim(); room=$("room").value.trim().toUpperCase().replace(/\s+/g,"-");
  const btn=$("joinBtn");
- btn.disabled=true; btn.textContent="عم نوصل... ⏳"; $("joinMsg").textContent="";
+ if(!me.name||!room){$("joinMsg").textContent="اكتب الاسم ورمز الغرفة 🙃";return}
+ btn.disabled=true; btn.textContent="عم نوصل... ⏳"; $("joinMsg").textContent="تم الضغط ✓ عم نوصل بالغرفة...";
+ // Move immediately so the click always gives visible feedback, even if realtime is slow.
+ $("roomName").textContent=room; show($("lobby")); $("lobbyMsg").textContent="عم نوصل باللاعبين... ⏳";
  try {
    if(!window.supabase || typeof window.supabase.createClient!=="function") throw new Error("Supabase library did not load");
-   sb=window.supabase.createClient(URL,KEY);
+   sb=window.supabase.createClient(SUPABASE_URL,KEY);
+   ch=sb.channel("birthday:"+room,{config:{presence:{key:me.id},broadcast:{self:true}}});
+   ch.on("presence",{event:"sync"},()=>{presence=ch.presenceState();render();$("lobbyMsg").textContent=""})
+     .on("broadcast",{event:"round"},({payload})=>receiveRound(payload))
+     .on("broadcast",{event:"hop"},({payload})=>receiveHop(payload))
+     .on("broadcast",{event:"explode"},({payload})=>receiveExplosion(payload))
+     .subscribe(async status=>{
+       if(status==="SUBSCRIBED"){
+         try { await ch.track(me); $("lobbyMsg").textContent="متصل ✓"; setTimeout(()=>{$("lobbyMsg").textContent=""},1200); }
+         catch(err){console.error(err); $("lobbyMsg").textContent="اتصلنا، بس Presence ما اشتغل. اعمل Refresh.";}
+       } else if(status==="CHANNEL_ERROR" || status==="TIMED_OUT" || status==="CLOSED"){
+         $("lobbyMsg").textContent="مشكلة اتصال بالغرفة: "+status;
+       }
+     });
  } catch(err){
-   console.error(err); $("joinMsg").textContent="تعذّر الاتصال باللعبة. اعمل Refresh وجرب من جديد.";
-   btn.disabled=false; btn.textContent="يلا فوت 🎉"; return;
+   console.error(err); $("lobbyMsg").textContent="Supabase ما تحمّل. جرّب Refresh أو افتح الصفحة بدون Content Blocker.";
  }
- ch=sb.channel("birthday:"+room,{config:{presence:{key:me.id},broadcast:{self:true}}});
- ch.on("presence",{event:"sync"},()=>{presence=ch.presenceState();render()})
-   .on("broadcast",{event:"round"},({payload})=>receiveRound(payload))
-   .on("broadcast",{event:"hop"},({payload})=>receiveHop(payload))
-   .on("broadcast",{event:"explode"},({payload})=>receiveExplosion(payload))
-   .subscribe(async s=>{
-     if(s==="SUBSCRIBED"){
-       try { await ch.track(me); $("roomName").textContent=room; show($("lobby")); }
-       catch(err){ console.error(err); $("joinMsg").textContent="اتصلنا، بس ما قدرنا ندخل الغرفة. جرّب Refresh."; btn.disabled=false; btn.textContent="يلا فوت 🎉"; }
-     } else if(s==="CHANNEL_ERROR" || s==="TIMED_OUT" || s==="CLOSED"){
-       $("joinMsg").textContent="مشكلة اتصال بالغرفة ("+s+"). جرّب Refresh."; btn.disabled=false; btn.textContent="يلا فوت 🎉";
-     }
-   });
-};
+ btn.disabled=false; btn.textContent="يلا فوت 🎉";
+}
+$("joinBtn").addEventListener("click",joinGame);
 $("start").onclick=()=>launchRound();
 $("leave").onclick=async()=>{if(ch){await ch.untrack();await sb.removeChannel(ch)}location.reload()};
 $("throw").onclick=()=>launchRound();
